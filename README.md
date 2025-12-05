@@ -1,2 +1,2 @@
 # airflow-custom-plugin
-Adding a custom plugin to apache Airflow
+Adding a custom plugin to apache Airflow for Databricks.
