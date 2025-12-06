@@ -85,7 +85,7 @@ apache-airflow-providers-standard = {workspace = true}
 "YouTube" = "https://www.youtube.com/channel/UCSXwxpWZQ7XZ1WL3wqevChA/"
 
 [project.entry-points."airflow.plugins"]
-databricks_workflow = "custom_plugin.databricks.plugins.databricks_workflow:DatabricksWorkflowPlugin"
+databricks_workflow_custom = "custom_plugin.databricks.plugins.databricks_workflow:DatabricksWorkflowPlugin"
 
 [tool.flit.module]
 name = "custom_plugin.databricks"
