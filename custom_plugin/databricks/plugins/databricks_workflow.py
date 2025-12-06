@@ -31,6 +31,9 @@ from airflow.providers.databricks.version_compat import AIRFLOW_V_3_0_PLUS
 from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.utils.state import TaskInstanceState
 
+# CSRF Import (Critical for @csrf.exempt)
+from airflow.www.app import csrf
+
 from airflow.providers.databricks.operators.databricks_workflow import (
     DatabricksWorkflowTaskGroup
 )
@@ -513,6 +516,7 @@ databricks_plugin_bp = Blueprint(
 )
 
 @databricks_plugin_bp.route("/trigger_dag/<string:dag_id>", methods=["POST"])
+@csrf.exempt
 def trigger_dag_endpoint(dag_id: str):
     """
     Custom REST endpoint to trigger a DAG.
@@ -536,6 +540,7 @@ def trigger_dag_endpoint(dag_id: str):
         return jsonify({"error": str(e)}), 500
 
 @databricks_plugin_bp.route("/test", methods=["GET"])
+@csrf.exempt
 def test_endpoint():
     return jsonify({"status": "Databricks Plugin API is active!"})
 
