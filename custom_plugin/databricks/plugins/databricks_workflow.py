@@ -85,7 +85,7 @@ if not AIRFLOW_V_3_0_PLUS:
 
         return auth.has_access_dag("POST", DagAccessEntity.RUN)
 
-    class RepairDatabricksTasks(BaseView, LoggingMixin):
+    class RepairDatabricksTasksCustom(BaseView, LoggingMixin):
         """Repair databricks tasks from Airflow."""
 
         default_view = "repair"
@@ -393,7 +393,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
             "tasks_to_repair": tasks_str,
         }
 
-        return url_for("RepairDatabricksTasks.repair", **query_params)
+        return url_for("RepairDatabricksTasksCustom.repair", **query_params)
 
     @classmethod
     def get_task_group_children(cls, task_group: TaskGroup) -> dict[str, BaseOperator]:
@@ -503,7 +503,7 @@ class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
             "run_id": ti_key.run_id,
             "tasks_to_repair": task.databricks_task_key,
         }
-        return url_for("RepairDatabricksTasks.repair", **query_params)
+        return url_for("RepairDatabricksTasksCustom.repair", **query_params)
 
 
 databricks_plugin_bp = Blueprint(
@@ -566,7 +566,7 @@ class DatabricksWorkflowPlugin(AirflowPlugin):
             WorkflowJobRepairSingleTaskLink(),
             WorkflowJobRunLink(),
         ]
-        repair_databricks_view = RepairDatabricksTasks()
+        repair_databricks_view = RepairDatabricksTasksCustom()
         repair_databricks_package = {
             "view": repair_databricks_view,
         }
