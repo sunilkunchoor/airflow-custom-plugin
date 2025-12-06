@@ -30,6 +30,9 @@ from airflow.providers.databricks.version_compat import AIRFLOW_V_3_0_PLUS
 from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.utils.state import TaskInstanceState
 
+from airflow.providers.databricks.operators.databricks_workflow import (
+    DatabricksWorkflowTaskGroup
+)
 from airflow.providers.databricks.operators.databricks import (
     DatabricksNotebookOperator,
     DatabricksTaskOperator,
