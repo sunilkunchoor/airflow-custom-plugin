@@ -84,9 +84,6 @@ apache-airflow-providers-standard = {workspace = true}
 "Mastodon" = "https://fosstodon.org/@airflow"
 "YouTube" = "https://www.youtube.com/channel/UCSXwxpWZQ7XZ1WL3wqevChA/"
 
-[project.entry-points."apache_airflow_provider"]
-provider_info = "custom_plugin.databricks.get_provider_info:get_provider_info"
-
 [project.entry-points."airflow.plugins"]
 databricks_workflow = "custom_plugin.databricks.plugins.databricks_workflow:DatabricksWorkflowPlugin"
 
