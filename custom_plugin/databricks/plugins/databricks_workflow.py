@@ -27,7 +27,10 @@ from airflow.models.taskinstance import TaskInstance, TaskInstanceKey, clear_tas
 from airflow.plugins_manager import AirflowPlugin
 from airflow.providers.common.compat.sdk import BaseOperatorLink, TaskGroup, XCom
 from airflow.providers.databricks.hooks.databricks import DatabricksHook
-from airflow.providers.databricks.version_compat import AIRFLOW_V_3_0_PLUS
+
+# Removing the AIRFLOW_V_3_0_PLUS import and adding it directly here to avoid the cleanup.
+AIRFLOW_V_3_0_PLUS = False
+
 from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.utils.state import TaskInstanceState
 
