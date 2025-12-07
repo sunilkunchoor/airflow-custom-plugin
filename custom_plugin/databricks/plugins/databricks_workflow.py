@@ -606,6 +606,7 @@ def repair_run_endpoint():
         databricks_conn_id = data.get("databricks_conn_id")
         databricks_run_id = data.get("databricks_run_id")
         tasks_to_repair = data.get("tasks_to_repair")
+        dag_id = data.get("dag_id")
         
         # Validation
         if not databricks_conn_id:
@@ -616,9 +617,9 @@ def repair_run_endpoint():
             return jsonify({"error": "Missing tasks_to_repair"}), 400
         
         if isinstance(tasks_to_repair, str):
-            tasks_to_repair = [t.strip() for t in tasks_to_repair.split(",") if t.strip()]
+            tasks_to_repair = [dag_id+"__"+str(t).replace(".", "__").strip() for t in tasks_to_repair.split(",") if t.strip()]
         elif isinstance(tasks_to_repair, list):
-            tasks_to_repair = [str(t).strip() for t in tasks_to_repair if str(t).strip()]
+            tasks_to_repair = [dag_id+"__"+str(t).replace(".", "__").strip() for t in tasks_to_repair if str(t).strip()]
             
         logger.info(f"Repairing Databricks run {databricks_run_id} with tasks {tasks_to_repair}")
         
