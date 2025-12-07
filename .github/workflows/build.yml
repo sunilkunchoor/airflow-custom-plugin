@@ -36,7 +36,7 @@ jobs:
           
           # Get the current version from pyproject.toml using 'uv version --short'
           CURRENT_VERSION=$(uv version --short)
-          NEW_VERSION="${CURRENT_VERSION}+${SHORT_SHA}" # Append commit SHA
+          NEW_VERSION="${CURRENT_VERSION}${SHORT_SHA}" # Append commit SHA
 
           echo "Original Version: $CURRENT_VERSION"
           echo "New Version: $NEW_VERSION"
