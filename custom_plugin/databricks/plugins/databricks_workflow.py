@@ -172,6 +172,7 @@ if not AIRFLOW_V_3_0_PLUS:
         tis_to_clear = []
         # Create a set for faster lookup and normalization if needed
         repair_keys_set = set(task_ids)
+        log.info("Repair keys set to match: %s", repair_keys_set)
         
         for ti in dr.get_task_instances():
             try:
@@ -179,19 +180,20 @@ if not AIRFLOW_V_3_0_PLUS:
                 match_found = False
                 
                 # Check 1: databricks_task_key on Operator (if available)
-                if hasattr(task, "databricks_task_key") and task.databricks_task_key in repair_keys_set:
+                task_db_key = getattr(task, "databricks_task_key", None)
+                if task_db_key and task_db_key in repair_keys_set:
                     match_found = True
-                    log.debug("Matched task %s via databricks_task_key", ti.task_id)
+                    log.info("Matched task %s via databricks_task_key: %s", ti.task_id, task_db_key)
                 
                 # Check 2: task_id (Fallback)
                 elif ti.task_id in repair_keys_set:
                     match_found = True
-                    log.debug("Matched task %s via task_id", ti.task_id)
+                    log.info("Matched task %s via task_id", ti.task_id)
 
                 if match_found:
                     tis_to_clear.append(ti)
                 else:
-                    log.debug("Task %s skipped. Keys checked against: %s", ti.task_id, repair_keys_set)
+                    log.info("Task %s skipped. TaskKey: %s. ID: %s", ti.task_id, task_db_key, ti.task_id)
                     
             except Exception as e:
                 log.warning("Could not check task %s for clearing: %s", ti.task_id, e)
