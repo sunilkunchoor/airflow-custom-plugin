@@ -73,6 +73,6 @@ jobs:
           twine upload --repository-url "${PIP_URL}" \
                       --username "AzureDevOps" \
                       --password "${{ secrets.AZURE_DEVOPS_PAT }}" \
-                      dist/*.whl --verbose --skip-existing # Upload only the wheel file
+                      dist/*.whl --verbose # Upload only the wheel file
 
           echo "Successfully uploaded wheel file to Azure DevOps Artifacts."
