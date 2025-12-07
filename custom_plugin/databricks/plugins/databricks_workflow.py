@@ -582,7 +582,9 @@ def repair_run_endpoint():
             return jsonify({"error": "Missing tasks_to_repair"}), 400
         
         if isinstance(tasks_to_repair, str):
-            tasks_to_repair = tasks_to_repair.split(",")
+            tasks_to_repair = [t.strip() for t in tasks_to_repair.split(",") if t.strip()]
+        elif isinstance(tasks_to_repair, list):
+            tasks_to_repair = [str(t).strip() for t in tasks_to_repair if str(t).strip()]
             
         logger.info(f"Repairing Databricks run {databricks_run_id} with tasks {tasks_to_repair}")
         
