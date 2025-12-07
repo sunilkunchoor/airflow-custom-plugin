@@ -168,8 +168,22 @@ if not AIRFLOW_V_3_0_PLUS:
         dag = _get_dag(dag_id, session=session)
         log.debug("task_ids %s to clear", str(task_ids))
         dr: DagRun = _get_dagrun(dag, run_id, session=session)
-        tis_to_clear = [ti for ti in dr.get_task_instances() if ti.databricks_task_key in task_ids]
+        
+        tis_to_clear = []
+        for ti in dr.get_task_instances():
+            try:
+                task = dag.get_task(ti.task_id)
+                if hasattr(task, "databricks_task_key") and task.databricks_task_key in task_ids:
+                    tis_to_clear.append(ti)
+                elif hasattr(ti, "databricks_task_key") and ti.databricks_task_key in task_ids:
+                    # Fallback if TI somehow has the property (e.g. patched)
+                    tis_to_clear.append(ti)
+            except Exception as e:
+                log.warning("Could not check task %s for clearing: %s", ti.task_id, e)
+
+        log.info("Found %d task instances to clear", len(tis_to_clear))
         clear_task_instances(tis_to_clear, session)
+        return len(tis_to_clear)
 
     @provide_session
     def get_task_instance(operator: BaseOperator, dttm, session: Session = NEW_SESSION) -> TaskInstance:
@@ -605,14 +619,15 @@ def repair_run_endpoint():
             logger.info(f"Clearing Airflow tasks for DAG {dag_id} run {run_id}")
             # Ensure correct types
             run_id = unquote(str(run_id))
-            _clear_task_instances(dag_id, run_id, tasks_to_repair, logger)
+            count = _clear_task_instances(dag_id, run_id, tasks_to_repair, logger)
             airflow_cleared = True
             
         return jsonify({
             "message": "Repair triggered successfully",
             "databricks_run_id": databricks_run_id,
             "repair_id": new_repair_id,
-            "airflow_tasks_cleared": airflow_cleared
+            "airflow_tasks_cleared": airflow_cleared,
+            "cleared_tasks_count": count if airflow_cleared else 0
         }), 200
         
     except Exception as e:
