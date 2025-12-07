@@ -14,10 +14,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
+
+
+      - name: Update pyproject.toml with Commit ID in Version
+        run: |
+          set -x # Enable shell debugging
+          
+          # Get the first 7 characters of the commit SHA
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "Commit SHA: $SHORT_SHA"
+          
+          # Get the current version from pyproject.toml using 'poetry version --short'
+          CURRENT_VERSION=$(poetry version --short)
+          NEW_VERSION="${CURRENT_VERSION}+${SHORT_SHA}" # Append commit SHA
+
+          echo "Original Version: $CURRENT_VERSION"
+          echo "New Version: $NEW_VERSION"
+
+          # Use sed to replace the version in pyproject.toml
+          # 's/^version = ".*"/version = "NEW_VERSION"/'
+          # The regex targets the 'version = "..."' line
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+
+          echo "Updated pyproject.toml:"
+          cat pyproject.toml | grep "version =" # Show the updated version line
 
       - name: Build package
         run: uv build
@@ -27,3 +57,22 @@ jobs:
         with:
           name: python-package-distributions
           path: dist/
+    
+      - name: Install Twine
+        run: pip install twine
+
+      - name: Publish Package to Azure DevOps Artifacts
+        run: |
+
+          PIP_URL="https://pkgs.dev.azure.com/skunchoor/github-action-artifacts/_packaging/local/pypi/upload/"
+
+          echo "Attempting to upload to Azure DevOps feed: ${PIP_URL}"
+
+          # Use twine to upload the package to Azure DevOps Artifacts.
+          # The `--skip-existing` flag can be useful if you're re-running builds.
+          twine upload --repository-url "${PIP_URL}" \
+                      --username "AzureDevOps" \
+                      --password "${{ secrets.AZURE_DEVOPS_PAT }}" \
+                      dist/*.whl --verbose --skip-existing # Upload only the wheel file
+
+          echo "Successfully uploaded wheel file to Azure DevOps Artifacts."
