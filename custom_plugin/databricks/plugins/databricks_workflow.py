@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 from flask import Blueprint, jsonify, request
+import logging
 
 from airflow.exceptions import AirflowException, TaskInstanceNotFound
 from airflow.models.dagrun import DagRun
@@ -546,6 +547,75 @@ def trigger_dag_endpoint(dag_id: str):
 @csrf.exempt
 def test_endpoint():
     return jsonify({"status": "Databricks Plugin API is active!"})
+
+
+@databricks_plugin_bp.route("/repair_run", methods=["POST"])
+@csrf.exempt
+def repair_run_endpoint():
+    """
+    Custom REST endpoint to repair a Databricks run.
+    Usage: POST /databricks_plugin_api/repair_run
+    Body: {
+        "databricks_conn_id": "databricks_default",
+        "databricks_run_id": 12345,
+        "tasks_to_repair": ["task_key_1", "task_key_2"],
+        "dag_id": "optional_dag_id_to_clear_airflow_tasks",
+        "run_id": "optional_run_id_to_clear_airflow_tasks"
+    }
+    """
+    # Create a logger for this function since it's not in a class with LoggingMixin
+    logger = logging.getLogger(__name__)
+    
+    try:
+        data = request.json if request.is_json else {}
+        
+        databricks_conn_id = data.get("databricks_conn_id")
+        databricks_run_id = data.get("databricks_run_id")
+        tasks_to_repair = data.get("tasks_to_repair")
+        
+        # Validation
+        if not databricks_conn_id:
+            return jsonify({"error": "Missing databricks_conn_id"}), 400
+        if not databricks_run_id:
+            return jsonify({"error": "Missing databricks_run_id"}), 400
+        if not tasks_to_repair:
+            return jsonify({"error": "Missing tasks_to_repair"}), 400
+        
+        if isinstance(tasks_to_repair, str):
+            tasks_to_repair = tasks_to_repair.split(",")
+            
+        logger.info(f"Repairing Databricks run {databricks_run_id} with tasks {tasks_to_repair}")
+        
+        # Repair on Databricks
+        new_repair_id = _repair_task(
+            databricks_conn_id=databricks_conn_id,
+            databricks_run_id=int(databricks_run_id),
+            tasks_to_repair=tasks_to_repair,
+            logger=logger,
+        )
+        
+        # Optional: Clear Airflow tasks if DAG info provided
+        dag_id = data.get("dag_id")
+        run_id = data.get("run_id")
+        
+        airflow_cleared = False
+        if dag_id and run_id:
+            logger.info(f"Clearing Airflow tasks for DAG {dag_id} run {run_id}")
+            # Ensure correct types
+            run_id = unquote(str(run_id))
+            _clear_task_instances(dag_id, run_id, tasks_to_repair, logger)
+            airflow_cleared = True
+            
+        return jsonify({
+            "message": "Repair triggered successfully",
+            "databricks_run_id": databricks_run_id,
+            "repair_id": new_repair_id,
+            "airflow_tasks_cleared": airflow_cleared
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error repairing run: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 
