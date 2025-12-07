@@ -170,19 +170,37 @@ if not AIRFLOW_V_3_0_PLUS:
         dr: DagRun = _get_dagrun(dag, run_id, session=session)
         
         tis_to_clear = []
+        # Create a set for faster lookup and normalization if needed
+        repair_keys_set = set(task_ids)
+        
         for ti in dr.get_task_instances():
             try:
                 task = dag.get_task(ti.task_id)
-                if hasattr(task, "databricks_task_key") and task.databricks_task_key in task_ids:
+                match_found = False
+                
+                # Check 1: databricks_task_key on Operator (if available)
+                if hasattr(task, "databricks_task_key") and task.databricks_task_key in repair_keys_set:
+                    match_found = True
+                    log.debug("Matched task %s via databricks_task_key", ti.task_id)
+                
+                # Check 2: task_id (Fallback)
+                elif ti.task_id in repair_keys_set:
+                    match_found = True
+                    log.debug("Matched task %s via task_id", ti.task_id)
+
+                if match_found:
                     tis_to_clear.append(ti)
-                elif hasattr(ti, "databricks_task_key") and ti.databricks_task_key in task_ids:
-                    # Fallback if TI somehow has the property (e.g. patched)
-                    tis_to_clear.append(ti)
+                else:
+                    log.debug("Task %s skipped. Keys checked against: %s", ti.task_id, repair_keys_set)
+                    
             except Exception as e:
                 log.warning("Could not check task %s for clearing: %s", ti.task_id, e)
 
-        log.info("Found %d task instances to clear", len(tis_to_clear))
-        clear_task_instances(tis_to_clear, session)
+        log.info("Found %d task instances to clear out of %d checked", len(tis_to_clear), len(dr.get_task_instances()))
+        
+        if tis_to_clear:
+            clear_task_instances(tis_to_clear, session, dag=dag)
+
         return len(tis_to_clear)
 
     @provide_session
