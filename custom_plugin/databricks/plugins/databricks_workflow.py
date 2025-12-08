@@ -77,7 +77,7 @@ def get_databricks_task_ids(
             # Fallback for SerializedBaseOperator which may not have the property
             # Format: dag_id__task_id (with dots replaced by double underscores)
             # databricks_task_id = f"{task.dag_id}__{task.task_id.replace('.', '__')}"
-            databricks_task_id = f"{task.dag_id}.{task.task_id}"
+            databricks_task_id = f"{task.task_id}"
             
         log.debug("databricks task id for task %s is %s", task_id, databricks_task_id)
         task_ids.append(databricks_task_id)
@@ -763,7 +763,7 @@ def repair_all_failed_endpoint():
 
         tasks_to_repair_keys = get_databricks_task_ids(task_group.group_id, tasks_to_run_map, logger)
         
-        dbk_tasks_to_repair_keys = [task.replace(".", "__") for task in tasks_to_repair_keys]
+        dbk_tasks_to_repair_keys = [dag_id+"__"+task.replace(".", "__") for task in tasks_to_repair_keys]
         logger.info(f"Auto-detected tasks to repair: {tasks_to_repair_keys}")
 
         # 5. Repair on Databricks
