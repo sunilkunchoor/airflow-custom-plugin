@@ -762,14 +762,15 @@ def repair_all_failed_endpoint():
             }), 200
 
         tasks_to_repair_keys = get_databricks_task_ids(task_group.group_id, tasks_to_run_map, logger)
-
+        
+        dbk_tasks_to_repair_keys = [task.replace(".", "__") for task in tasks_to_repair_keys]
         logger.info(f"Auto-detected tasks to repair: {tasks_to_repair_keys}")
 
         # 5. Repair on Databricks
         new_repair_id = _repair_task(
             databricks_conn_id=databricks_conn_id,
             databricks_run_id=int(databricks_run_id),
-            tasks_to_repair=tasks_to_repair_keys,
+            tasks_to_repair=dbk_tasks_to_repair_keys,
             logger=logger,
         )
 
