@@ -5,9 +5,9 @@ Adding a custom plugin to apache Airflow for Databricks.
 
 # Bash Commands
 
-## Run Docker Compose
+## Run Docker Compose and Build
 ```bash
-docker-compose up -d
+docker-compose up --build
 ```
 
 ## Stop Docker Compose
