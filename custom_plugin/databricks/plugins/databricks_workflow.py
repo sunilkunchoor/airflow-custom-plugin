@@ -465,10 +465,10 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
         with create_session() as session:
             dag = _get_dag(ti_key.dag_id, session=session)
             dr = _get_dagrun(dag, ti_key.run_id, session=session)
-        log.debug("Getting failed and skipped tasks for dag run %s", dr.run_id)
+        log.info("Getting failed and skipped tasks for dag run %s", dr.run_id)
         task_group_sub_tasks = self.get_task_group_children(task_group).items()
         failed_and_skipped_tasks = self._get_failed_and_skipped_tasks(dr)
-        log.debug("Failed and skipped tasks: %s", failed_and_skipped_tasks)
+        log.info("Failed and skipped tasks: %s", failed_and_skipped_tasks)
 
         tasks_to_run = {ti: t for ti, t in task_group_sub_tasks if ti in failed_and_skipped_tasks}
 
@@ -653,6 +653,135 @@ def repair_run_endpoint():
         
     except Exception as e:
         logger.error(f"Error repairing run: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+def _find_task_group(root_group: TaskGroup, target_group_id: str) -> TaskGroup | None:
+    """
+    Recursively find a TaskGroup by its group_id.
+    """
+    if root_group.group_id == target_group_id:
+        return root_group
+    
+    for child in root_group.children.values():
+        if isinstance(child, TaskGroup):
+            found = _find_task_group(child, target_group_id)
+            if found:
+                return found
+    return None
+
+
+@databricks_plugin_bp.route("/repair_all_failed", methods=["POST"])
+@csrf.exempt
+def repair_all_failed_endpoint():
+    """
+    Custom REST endpoint to repair all failed tasks in a task group.
+    Usage: POST /databricks_plugin_api/repair_all_failed
+    Body: {
+        "dag_id": "my_dag_id",
+        "run_id": "manual__2025-...",
+        "task_group_id": "my_group_id"
+    }
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        data = request.json if request.is_json else {}
+        dag_id = data.get("dag_id")
+        run_id = data.get("run_id")
+        task_group_id = data.get("task_group_id")
+
+        if not dag_id:
+            return jsonify({"error": "Missing dag_id"}), 400
+        if not run_id:
+            return jsonify({"error": "Missing run_id"}), 400
+        if not task_group_id:
+            return jsonify({"error": "Missing task_group_id"}), 400
+
+        # 1. Get DAG and Run
+        from airflow.utils.session import create_session
+        with create_session() as session:
+            dag = _get_dag(dag_id, session=session)
+            dr = _get_dagrun(dag, run_id, session=session) # Ensures generic run_id is resolved if needed, though we expect specific here
+
+        # 2. Find Task Group
+        # dag.task_group is the root
+        task_group = _find_task_group(dag.task_group, task_group_id)
+        if not task_group:
+             return jsonify({"error": f"Task group {task_group_id} not found in DAG {dag_id}"}), 404
+
+        # 3. Find Launch Task to get Databricks Metadata
+        try:
+            launch_task_id = get_launch_task_id(task_group)
+        except AirflowException as e:
+             return jsonify({"error": f"Could not find launch task: {str(e)}"}), 400
+
+        # Construct TI Key for launch task to get XCom
+        # Note: We don't have the try_number easily here, but XCom.get_value for 'return_value' usually works with just dag/run/task
+        # However, TaskInstanceKey requires try_number. 
+        # But get_xcom_result calls XCom.get_value(ti_key=ti_key, key=key)
+        # In Airflow 2, XCom.get_value(ti_key=...) uses the fields in ti_key.
+        # Let's try to get the try_number from the actual task instance of the launch task
+        
+        # We can find the TI for the launch task
+        launch_tis = [ti for ti in dr.get_task_instances() if ti.task_id == launch_task_id]
+        if not launch_tis:
+             return jsonify({"error": f"Launch task instance {launch_task_id} not found"}), 404
+        launch_ti = launch_tis[0]
+        
+        # We can use the TI directly or construct the key
+        ti_key = launch_ti.key
+        
+        # Get Metadata
+        try:
+            metadata = get_xcom_result(ti_key, "return_value")
+        except Exception as e:
+             return jsonify({"error": f"Could not retrieve workflow metadata from XCom: {str(e)}"}), 500
+
+        databricks_conn_id = metadata.conn_id
+        databricks_run_id = metadata.run_id
+
+        # 4. Identify Tasks to Repair
+        # reusing WorkflowJobRepairAllFailedLink helpers
+        task_group_sub_tasks = WorkflowJobRepairAllFailedLink.get_task_group_children(task_group).items()
+        failed_and_skipped_tasks = WorkflowJobRepairAllFailedLink._get_failed_and_skipped_tasks(dr)
+        
+        tasks_to_run_map = {ti: t for ti, t in task_group_sub_tasks if ti in failed_and_skipped_tasks}
+        
+        if not tasks_to_run_map:
+             return jsonify({
+                "message": "No failed or skipped tasks found to repair",
+                "repaired_tasks": []
+            }), 200
+
+        tasks_to_repair_keys = get_databricks_task_ids(task_group.group_id, tasks_to_run_map, logger)
+
+        logger.info(f"Auto-detected tasks to repair: {tasks_to_repair_keys}")
+
+        # 5. Repair on Databricks
+        new_repair_id = _repair_task(
+            databricks_conn_id=databricks_conn_id,
+            databricks_run_id=int(databricks_run_id),
+            tasks_to_repair=tasks_to_repair_keys,
+            logger=logger,
+        )
+
+        # 6. Clear Airflow Tasks
+        # Ensure correct types for clearing
+        run_id_str = unquote(str(run_id))
+        count = _clear_task_instances(dag_id, run_id_str, tasks_to_repair_keys, logger)
+
+        return jsonify({
+            "message": "Repair triggered successfully",
+            "databricks_run_id": databricks_run_id,
+            "repair_id": new_repair_id,
+            "airflow_tasks_cleared": True,
+            "cleared_tasks_count": count,
+            "repaired_tasks_keys": tasks_to_repair_keys
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in repair_all_failed: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
