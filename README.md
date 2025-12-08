@@ -50,3 +50,10 @@ curl -X POST 'http://localhost:8080/databricks_plugin_api/repair_run' -H "Conten
 ```bash
 curl -X POST 'http://192.168.0.19:8080/databricks_plugin_api/repair_all_failed' -H "Content-Type: application/json" --user "airflow:airflow" -d '{ "dag_id": "<DAG_ID>", "run_id": "<RUN_ID>", "task_group_id": "<TASK_GROUP_ID>"}'
 ```
+
+
+# Reference Links
+
+1. [Apache Airflow](https://github.com/apache/airflow)    
+2. [Airflow API](https://airflow.apache.org/docs/apache-airflow/stable/stable-rest-api-ref.html)    
+3. [Databricks REST API](https://docs.databricks.com/api/latest/index.html) 
