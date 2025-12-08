@@ -71,7 +71,13 @@ def get_databricks_task_ids(
     for task_id, task in task_map.items():
         if task_id == f"{group_id}.launch":
             continue
-        databricks_task_id = task.databricks_task_key
+        
+        databricks_task_id = getattr(task, "databricks_task_key", None)
+        if not databricks_task_id:
+            # Fallback for SerializedBaseOperator which may not have the property
+            # Format: dag_id__task_id (with dots replaced by double underscores)
+            databricks_task_id = f"{task.dag_id}__{task.task_id.replace('.', '__')}"
+            
         log.debug("databricks task id for task %s is %s", task_id, databricks_task_id)
         task_ids.append(databricks_task_id)
     return task_ids
