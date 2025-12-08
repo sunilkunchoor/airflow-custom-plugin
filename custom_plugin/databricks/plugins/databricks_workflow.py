@@ -76,7 +76,8 @@ def get_databricks_task_ids(
         if not databricks_task_id:
             # Fallback for SerializedBaseOperator which may not have the property
             # Format: dag_id__task_id (with dots replaced by double underscores)
-            databricks_task_id = f"{task.dag_id}__{task.task_id.replace('.', '__')}"
+            # databricks_task_id = f"{task.dag_id}__{task.task_id.replace('.', '__')}"
+            databricks_task_id = f"{task.dag_id}.{task.task_id}"
             
         log.debug("databricks task id for task %s is %s", task_id, databricks_task_id)
         task_ids.append(databricks_task_id)
