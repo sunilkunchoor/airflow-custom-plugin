@@ -103,7 +103,7 @@ if not AIRFLOW_V_3_0_PLUS:
     class RepairDatabricksTasksCustom(BaseView, LoggingMixin):
         """Repair databricks tasks from Airflow."""
 
-        default_view = "repair"
+        default_view = "repair_custom"
 
         @expose("/repair_databricks_job/<string:dag_id>/<string:run_id>", methods=("GET",))
         @get_auth_decorator()
