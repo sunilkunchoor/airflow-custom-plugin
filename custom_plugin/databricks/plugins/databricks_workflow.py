@@ -39,7 +39,8 @@ from airflow.utils.state import TaskInstanceState
 from airflow.www.app import csrf
 
 from airflow.providers.databricks.operators.databricks_workflow import (
-    DatabricksWorkflowTaskGroup
+    DatabricksWorkflowTaskGroup,
+    _CreateDatabricksWorkflowOperator
 )
 from airflow.providers.databricks.operators.databricks import (
     DatabricksNotebookOperator,
@@ -497,7 +498,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to send a request to repair all failed tasks in the Databricks workflow."""
 
     name = "Repair All Failed Tasks"
-    operator = DatabricksWorkflowTaskGroup
+    operator = [_CreateDatabricksWorkflowOperator]
 
     def get_link(
         self,
@@ -595,7 +596,7 @@ class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
     """Construct a link to send a repair request for a single databricks task."""
 
     name = "Repair a single task"
-    operator = DatabricksNotebookOperator
+    operator = [DatabricksNotebookOperator]
 
     def get_link(
         self,
@@ -645,7 +646,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to repair all failed tasks in the Databricks workflow (Server Side)."""
     
     name = "Special Repair"
-    operator = [DatabricksNotebookOperator, DatabricksTaskOperator]
+    operator = [_CreateDatabricksWorkflowOperator, DatabricksNotebookOperator]
 
     def get_link(
         self,
@@ -947,7 +948,7 @@ class HTTPDocsLink(BaseOperatorLink):
     name = "HTTP docs"
     
     # add the button to one or more operators
-    operators = [DatabricksNotebookOperator, DatabricksWorkflowTaskGroup]
+    operators = [DatabricksNotebookOperator, _CreateDatabricksWorkflowOperator]
 
     # provide the link
     def get_link(self, operator, *, ti_key=None):
