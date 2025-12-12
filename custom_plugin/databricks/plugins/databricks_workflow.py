@@ -496,7 +496,7 @@ def store_databricks_job_run_link(
 class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to send a request to repair all failed tasks in the Databricks workflow."""
 
-    name = "Repair All Failed Tasks with API"
+    name = "Repair All Failed Tasks"
     operator = DatabricksWorkflowTaskGroup
 
     def get_link(
@@ -594,7 +594,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
 class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
     """Construct a link to send a repair request for a single databricks task."""
 
-    name = "Repair a single task with API"
+    name = "Repair a single task"
     operator = DatabricksNotebookOperator
 
     def get_link(
@@ -644,8 +644,8 @@ class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
 class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to repair all failed tasks in the Databricks workflow (Server Side)."""
     
-    name = "Repair All Failed Tasks (Plugin)"
-    operator = DatabricksWorkflowTaskGroup
+    name = "Special Repair"
+    operator = [DatabricksNotebookOperator, DatabricksTaskOperator]
 
     def get_link(
         self,
@@ -657,7 +657,16 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
         if not ti_key:
             ti = get_task_instance(operator, dttm)
             ti_key = ti.key
+        
+        # Traverse up to find DatabricksWorkflowTaskGroup
         task_group = operator.task_group
+        while task_group:
+            if isinstance(task_group, DatabricksWorkflowTaskGroup):
+                break
+            task_group = task_group.parent_group
+            
+        if not task_group:
+            return ""
         
         query_params = {
             "dag_id": ti_key.dag_id,
