@@ -497,8 +497,8 @@ def store_databricks_job_run_link(
 class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to send a request to repair all failed tasks in the Databricks workflow."""
 
-    name = "Repair All Failed Tasks"
-    operator = [_CreateDatabricksWorkflowOperator]
+    name = "Repair All Failed"
+    operators = [_CreateDatabricksWorkflowOperator]
 
     def get_link(
         self,
@@ -595,8 +595,8 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
 class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
     """Construct a link to send a repair request for a single databricks task."""
 
-    name = "Repair a single task"
-    operator = [DatabricksNotebookOperator]
+    name = "Repair Single"
+    operators = [DatabricksNotebookOperator]
 
     def get_link(
         self,
@@ -646,7 +646,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to repair all failed tasks in the Databricks workflow (Server Side)."""
     
     name = "Special Repair"
-    operator = [_CreateDatabricksWorkflowOperator, DatabricksNotebookOperator]
+    operators = [_CreateDatabricksWorkflowOperator]
 
     def get_link(
         self,
