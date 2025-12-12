@@ -497,7 +497,7 @@ def store_databricks_job_run_link(
 class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
     """Constructs a link to send a request to repair all failed tasks in the Databricks workflow."""
 
-    name = "Repair All Failed"
+    name = "Repair All Failed Tasks"
     operators = [_CreateDatabricksWorkflowOperator]
 
     def get_link(
@@ -637,7 +637,7 @@ class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
             "databricks_conn_id": metadata.conn_id,
             "databricks_run_id": metadata.run_id,
             "run_id": ti_key.run_id,
-            "tasks_to_repair": task.databricks_task_key,
+            "tasks_to_repair": getattr(task, "databricks_task_key", task.task_id),
         }
         return url_for("RepairDatabricksTasksCustom.repair", **query_params)
 
@@ -874,10 +874,20 @@ def repair_all_failed_tasks(
     logger.info(f"Auto-detected tasks to repair: {tasks_to_repair_keys}")
 
     # 5. Repair on Databricks
+    
+    # Clean keys for Databricks (only alphanumeric, - and _)
+    # If the key is just a task_id which might have dots (e.g. from task groups), replace dots with underscores
+    clean_dbk_tasks_to_repair_keys = []
+    for k in dbk_tasks_to_repair_keys:
+        clean_key = k.replace(".", "_") if k else k
+        clean_dbk_tasks_to_repair_keys.append(clean_key)
+        
+    logger.info(f"Cleaned tasks to repair keys: {clean_dbk_tasks_to_repair_keys}")
+
     new_repair_id = _repair_task(
         databricks_conn_id=databricks_conn_id,
         databricks_run_id=int(databricks_run_id),
-        tasks_to_repair=dbk_tasks_to_repair_keys,
+        tasks_to_repair=clean_dbk_tasks_to_repair_keys,
         logger=logger,
     )
 
