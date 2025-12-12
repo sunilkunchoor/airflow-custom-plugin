@@ -595,7 +595,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
 class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
     """Construct a link to send a repair request for a single databricks task."""
 
-    name = "Repair Single"
+    name = "Repair a Single Task"
     operators = [DatabricksNotebookOperator]
 
     def get_link(
