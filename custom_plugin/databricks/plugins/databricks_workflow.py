@@ -941,6 +941,17 @@ def repair_all_failed_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+# define the extra link
+class HTTPDocsLink(BaseOperatorLink):
+    # name the link button in the UI
+    name = "HTTP docs"
+    
+    # add the button to one or more operators
+    operators = [DatabricksNotebookOperator, DatabricksWorkflowTaskGroup]
+
+    # provide the link
+    def get_link(self, operator, *, ti_key=None):
+        return "https://developer.mozilla.org/en-US/docs/Web/HTTP"
 
 class DatabricksWorkflowPlugin(AirflowPlugin):
     """
@@ -967,6 +978,7 @@ class DatabricksWorkflowPlugin(AirflowPlugin):
             WorkflowJobRepairSingleTaskLink(),
             WorkflowJobRepairAllFailedFullLink(),
             WorkflowJobRunLink(),
+            HTTPDocsLink(),
         ]
         repair_databricks_view = RepairDatabricksTasksCustom()
         repair_databricks_package = {
