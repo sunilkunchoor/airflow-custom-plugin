@@ -659,23 +659,50 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
             ti = get_task_instance(operator, dttm)
             ti_key = ti.key
         
-        # Traverse up to find DatabricksWorkflowTaskGroup
+        # Finding the DatabricksWorkflowTaskGroup
         task_group = operator.task_group
-        while task_group:
-            if isinstance(task_group, DatabricksWorkflowTaskGroup):
-                break
-            task_group = task_group.parent_group
-            
-        if not task_group:
-            return ""
+        self.log.debug(
+            "Creating link to repair all tasks for databricks job run %s",
+            task_group.group_id,
+        )
+        
+        metadata = get_xcom_result(ti_key, "return_value")
+
+        tasks_str = self.get_tasks_to_run(ti_key, operator, self.log)
+        self.log.debug("tasks to rerun: %s", tasks_str)
         
         query_params = {
             "dag_id": ti_key.dag_id,
+            "databricks_conn_id": metadata.conn_id,
+            "databricks_run_id": metadata.run_id,
             "run_id": ti_key.run_id,
-            "task_group_id": task_group.group_id,
+            "tasks_to_repair": tasks_str,
         }
         
         return url_for("RepairDatabricksTasksCustom.repair_handler", **query_params)
+    
+    def get_tasks_to_run(self, ti_key: TaskInstanceKey, operator: BaseOperator, log: Logger) -> str:
+        task_group = operator.task_group
+        if not task_group:
+            raise AirflowException("Task group is required for generating repair link.")
+        if not task_group.group_id:
+            raise AirflowException("Task group ID is required for generating repair link.")
+
+        from airflow.utils.session import create_session
+
+        with create_session() as session:
+            dag = _get_dag(ti_key.dag_id, session=session)
+            dr = _get_dagrun(dag, ti_key.run_id, session=session)
+        log.info("Getting failed and skipped tasks for dag run %s", dr.run_id)
+
+        task_group_sub_tasks = WorkflowJobRepairAllFailedLink.get_task_group_children(task_group).items()
+        failed_and_skipped_tasks = WorkflowJobRepairAllFailedLink._get_failed_and_skipped_tasks(dr)
+        log.info("task_group_sub_tasks: %s", failed_and_skipped_tasks)
+        log.info("Failed and skipped tasks: %s", failed_and_skipped_tasks)
+
+        tasks_to_run = {ti: t for ti, t in task_group_sub_tasks if ti in failed_and_skipped_tasks}
+
+        return ",".join(get_databricks_task_ids(task_group.group_id, tasks_to_run, log))  # type: ignore[arg-type]
 
 
 databricks_plugin_bp = Blueprint(
