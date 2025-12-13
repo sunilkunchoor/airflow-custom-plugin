@@ -105,7 +105,7 @@ if not AIRFLOW_V_3_0_PLUS:
 
         default_view = "repair_custom"
 
-        @expose("/repair_databricks_job/<string:dag_id>/<string:run_id>", methods=("GET",))
+        @expose("/repair_databricks_custom/<string:dag_id>/<string:run_id>", methods=("GET",))
         @get_auth_decorator()
         def repair(self, dag_id: str, run_id: str):
             return_url = self._get_return_url(dag_id, run_id)
@@ -595,7 +595,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
 class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
     """Construct a link to send a repair request for a single databricks task."""
 
-    name = "Repair a Single Task"
+    name = "Repair a single task"
     operators = [DatabricksNotebookOperator]
 
     def get_link(
