@@ -172,6 +172,10 @@ if not AIRFLOW_V_3_0_PLUS:
                 flash("No task group or tasks to repair provided.")
                 return redirect(return_url)
 
+        @staticmethod
+        def _get_return_url(dag_id: str, run_id: str) -> str:
+            return url_for("Airflow.grid", dag_id=dag_id, dag_run_id=run_id)
+
     def _get_dag(dag_id: str, session: Session):
         from airflow.models.serialized_dag import SerializedDagModel
 
