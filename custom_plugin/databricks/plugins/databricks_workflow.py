@@ -103,79 +103,74 @@ if not AIRFLOW_V_3_0_PLUS:
     class RepairDatabricksTasksCustom(BaseView, LoggingMixin):
         """Repair databricks tasks from Airflow."""
 
-        default_view = "repair_custom"
+        default_view = "repair_databricks"
 
-        @expose("/repair_databricks_custom/<string:dag_id>/<string:run_id>", methods=("GET",))
+        @expose("/repair_databricks/<string:dag_id>/<string:run_id>", methods=("GET",))
         @get_auth_decorator()
-        def repair(self, dag_id: str, run_id: str):
+        def repair_handler(self, dag_id: str, run_id: str):
             return_url = self._get_return_url(dag_id, run_id)
-
-            tasks_to_repair = request.values.get("tasks_to_repair")
-            self.log.info("Tasks to repair: %s", tasks_to_repair)
-            if not tasks_to_repair:
-                flash("No tasks to repair. Not sending repair request.")
-                return redirect(return_url)
-
-            databricks_conn_id = request.values.get("databricks_conn_id")
-            databricks_run_id = request.values.get("databricks_run_id")
-
-            if not databricks_conn_id:
-                flash("No Databricks connection ID provided. Cannot repair tasks.")
-                return redirect(return_url)
-
-            if not databricks_run_id:
-                flash("No Databricks run ID provided. Cannot repair tasks.")
-                return redirect(return_url)
-
-            self.log.info("Repairing databricks job %s", databricks_run_id)
-            res = _repair_task(
-                databricks_conn_id=databricks_conn_id,
-                databricks_run_id=int(databricks_run_id),
-                tasks_to_repair=tasks_to_repair.split(","),
-                logger=self.log,
-            )
-            self.log.info("Repairing databricks job query for run %s sent", databricks_run_id)
-
-            self.log.info("Clearing tasks to rerun in airflow")
-
-            run_id = unquote(run_id)
-            _clear_task_instances(dag_id, run_id, tasks_to_repair.split(","), self.log)
-            flash(f"Databricks repair job is starting!: {res}")
-            return redirect(return_url)
-
-        @staticmethod
-        def _get_return_url(dag_id: str, run_id: str) -> str:
-            return url_for("Airflow.grid", dag_id=dag_id, dag_run_id=run_id)
-
-        @expose("/repair_all/<string:dag_id>/<string:run_id>", methods=("GET",))
-        @get_auth_decorator()
-        def repair_all(self, dag_id: str, run_id: str):
-            return_url = self._get_return_url(dag_id, run_id)
-            task_group_id = request.values.get("task_group_id")
             
-            if not task_group_id:
-                flash("No task group ID provided.")
+            # Check for merging param first (Task Group Repair)
+            task_group_id = request.values.get("task_group_id")
+            tasks_to_repair_str = request.values.get("tasks_to_repair")
+            
+            if task_group_id:
+                # Flow 1: Repair All Failed in Group (Server-side calculation)
+                try:
+                    self.log.info("Repairing all failed tasks for DAG %s run %s group %s", dag_id, run_id, task_group_id)
+                    clear_downstream_str = request.values.get("clear_downstream", "false").lower()
+                    clear_downstream = clear_downstream_str == "true"
+                    
+                    res = repair_all_failed_tasks(dag_id, run_id, task_group_id, self.log, clear_downstream=clear_downstream)
+                    
+                    if not res["repaired_tasks_keys"]:
+                         flash("No tasks found to repair.")
+                    else:
+                         flash(f"Databricks repair job started! Repair ID: {res['repair_id']}. Cleared {res['cleared_tasks_count']} tasks in Airflow.")
+                except Exception as e:
+                    self.log.error("Failed to repair tasks: %s", e, exc_info=True)
+                    flash(f"Failed to repair tasks: {e}")
+                    
                 return redirect(return_url)
 
-            try:
-                self.log.info("Repairing all failed tasks for DAG %s run %s group %s", dag_id, run_id, task_group_id)
-                # Parse clear_downstream from query params, default to True (as this is primarily for the Link)
-                # But user said "used only for the Link", and Link sends clear_downstream=true.
-                # Use string "true" check.
-                clear_downstream_str = request.values.get("clear_downstream", "false").lower()
-                clear_downstream = clear_downstream_str == "true"
-                
-                res = repair_all_failed_tasks(dag_id, run_id, task_group_id, self.log, clear_downstream=clear_downstream)
-                
-                if not res["repaired_tasks_keys"]:
-                     flash("No tasks found to repair.")
-                else:
-                     flash(f"Databricks repair job started! Repair ID: {res['repair_id']}. Cleared {res['cleared_tasks_count']} tasks in Airflow.")
-            except Exception as e:
-                self.log.error("Failed to repair tasks: %s", e, exc_info=True)
-                flash(f"Failed to repair tasks: {e}")
+            elif tasks_to_repair_str:
+                # Flow 2: Explicit List of Tasks (Single or Multiple)
+                databricks_conn_id = request.values.get("databricks_conn_id")
+                databricks_run_id = request.values.get("databricks_run_id")
 
-            return redirect(return_url)
+                if not databricks_conn_id or not databricks_run_id:
+                    flash("Missing Databricks connection or run ID.")
+                    return redirect(return_url)
+
+                self.log.info("Repairing specific tasks: %s", tasks_to_repair_str)
+                tasks_to_repair = tasks_to_repair_str.split(",")
+                
+                # SANITIZATION: Clean keys (replace dots with underscores)
+                # This fixes invalid parameter errors when task_id (with dots) is passed instead of databricks_key
+                clean_tasks_to_repair = [t.replace(".", "_") for t in tasks_to_repair if t]
+                self.log.info("Sanitized tasks to repair: %s", clean_tasks_to_repair)
+
+                try:
+                    res = _repair_task(
+                        databricks_conn_id=databricks_conn_id,
+                        databricks_run_id=int(databricks_run_id),
+                        tasks_to_repair=clean_tasks_to_repair,
+                        logger=self.log,
+                    )
+                    
+                    self.log.info("Clearing tasks to rerun in airflow")
+                    run_id_unquoted = unquote(run_id)
+                    _clear_task_instances(dag_id, run_id_unquoted, tasks_to_repair, self.log)
+                    flash(f"Databricks repair job is starting! Repair ID: {res}")
+                except Exception as e:
+                    self.log.error("Failed to repair single task: %s", e, exc_info=True)
+                    flash(f"Failed to repair task: {e}")
+                    
+                return redirect(return_url)
+            
+            else:
+                flash("No task group or tasks to repair provided.")
+                return redirect(return_url)
 
     def _get_dag(dag_id: str, session: Session):
         from airflow.models.serialized_dag import SerializedDagModel
@@ -529,7 +524,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
             "tasks_to_repair": tasks_str,
         }
 
-        return url_for("RepairDatabricksTasksCustom.repair", **query_params)
+        return url_for("RepairDatabricksTasksCustom.repair_handler", **query_params)
 
     @classmethod
     def get_task_group_children(cls, task_group: TaskGroup) -> dict[str, BaseOperator]:
@@ -639,7 +634,7 @@ class WorkflowJobRepairSingleTaskLink(BaseOperatorLink, LoggingMixin):
             "run_id": ti_key.run_id,
             "tasks_to_repair": getattr(task, "databricks_task_key", task.task_id),
         }
-        return url_for("RepairDatabricksTasksCustom.repair", **query_params)
+        return url_for("RepairDatabricksTasksCustom.repair_handler", **query_params)
 
 
 class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
@@ -675,7 +670,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
             "task_group_id": task_group.group_id,
         }
         
-        return url_for("RepairDatabricksTasksCustom.repair_all", **query_params)
+        return url_for("RepairDatabricksTasksCustom.repair_handler", **query_params)
 
 
 databricks_plugin_bp = Blueprint(
