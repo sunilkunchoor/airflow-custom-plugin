@@ -147,14 +147,15 @@ if not AIRFLOW_V_3_0_PLUS:
                 
                 # SANITIZATION: Clean keys (replace dots with underscores)
                 # This fixes invalid parameter errors when task_id (with dots) is passed instead of databricks_key
-                clean_tasks_to_repair = [t.replace(".", "_") for t in tasks_to_repair if t]
-                self.log.info("Sanitized tasks to repair: %s", clean_tasks_to_repair)
+                # clean_tasks_to_repair = [t.replace(".", "_") for t in tasks_to_repair if t]
+                dbk_tasks_to_repair = [dag_id+"__"+str(t).replace(".", "__").strip() for t in tasks_to_repair if str(t).strip()]
+                self.log.info("Sanitized tasks to repair for Databricks: %s", dbk_tasks_to_repair)
 
                 try:
                     res = _repair_task(
                         databricks_conn_id=databricks_conn_id,
                         databricks_run_id=int(databricks_run_id),
-                        tasks_to_repair=clean_tasks_to_repair,
+                        tasks_to_repair=dbk_tasks_to_repair,
                         logger=self.log,
                     )
                     
