@@ -268,15 +268,13 @@ if not AIRFLOW_V_3_0_PLUS:
 
     @provide_session
     def _clear_downstream_task_instances(
-        dag_id: str, run_id: str, task_group: TaskGroup, log: Logger
+        dag_id: str, run_id: str, task_group: TaskGroup, log: Logger, session: Session = NEW_SESSION
     ) -> int:
         """
         Clears all tasks downstream of the given TaskGroup, excluding tasks within the group itself.
         """
-        from airflow.utils.session import create_session
-        with create_session() as session:
-            dag = _get_dag(dag_id, session=session)
-            dr: DagRun = _get_dagrun(dag, run_id, session=session)
+        dag = _get_dag(dag_id, session=session)
+        dr: DagRun = _get_dagrun(dag, run_id, session=session)
         
         external_downstream_task_ids = get_task_group_downstream_task_ids(task_group, dag)
         log.info("External downstream task IDs found: %s", external_downstream_task_ids)
