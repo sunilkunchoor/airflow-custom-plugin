@@ -56,6 +56,49 @@ if TYPE_CHECKING:
     from airflow.sdk.types import Logger
 
 
+
+def get_task_group_downstream_task_ids(task_group: TaskGroup, dag: Any) -> set[str]:
+    """
+    Get all task IDs downstream of a TaskGroup, excluding tasks within the group itself.
+    """
+    # 1. Identify tasks within the current task group
+    group_task_ids = set()
+    from airflow.providers.common.compat.sdk import BaseOperator
+    
+    def get_ids(tg):
+        ids = set()
+        for child in tg.children.values():
+            if isinstance(child, TaskGroup):
+                ids.update(get_ids(child))
+            elif isinstance(child, BaseOperator):
+                ids.add(child.task_id)
+            elif hasattr(child, "task_id"): # Fallback
+                ids.add(child.task_id)
+        return ids
+
+    group_task_ids = get_ids(task_group)
+
+    # 2. Find external downstream tasks
+    external_downstream_task_ids = set()
+    
+    # Check if dag has task_dict (it should for SerializedDAG or regular DAG)
+    if not hasattr(dag, "task_dict"):
+        return set()
+
+    for task_id in group_task_ids:
+        if task_id not in dag.task_dict:
+             continue
+        task = dag.task_dict[task_id]
+        # get_flat_relatives(upstream=False) returns all downstream tasks recursively
+        downstreams = task.get_flat_relatives(upstream=False)
+        
+        for ds_task in downstreams:
+            if ds_task.task_id not in group_task_ids:
+                external_downstream_task_ids.add(ds_task.task_id)
+                
+    return external_downstream_task_ids
+
+
 def get_databricks_task_ids(
     group_id: str, task_map: dict[str, DatabricksTaskBaseOperator], log: Logger
 ) -> list[str]:
@@ -253,36 +296,7 @@ if not AIRFLOW_V_3_0_PLUS:
         dag = _get_dag(dag_id, session=session)
         dr: DagRun = _get_dagrun(dag, run_id, session=session)
         
-        # 1. Identify tasks within the current task group
-        current_group_task_ids = set()
-        # Helper to recursively get all task IDs in the group using existing method
-        from airflow.providers.common.compat.sdk import BaseOperator
-        
-        def get_all_task_ids_in_group(tg: TaskGroup) -> set[str]:
-            ids = set()
-            for child in tg.children.values():
-                if isinstance(child, TaskGroup):
-                    ids.update(get_all_task_ids_in_group(child))
-                elif isinstance(child, BaseOperator):
-                    ids.add(child.task_id)
-            return ids
-
-        current_group_task_ids = get_all_task_ids_in_group(task_group)
-        log.info("Current group task IDs: %s", current_group_task_ids)
-
-        # 2. Find external downstream tasks
-        external_downstream_task_ids = set()
-        
-        for task_id in current_group_task_ids:
-            task = dag.get_task(task_id)
-            # Get all flat relatives (downstream=True by default for get_flat_relatives? No, upstream=False implies downstream)
-            # get_flat_relatives(upstream=False) returns all downstream tasks recursively
-            downstreams = task.get_flat_relatives(upstream=False)
-            
-            for ds_task in downstreams:
-                if ds_task.task_id not in current_group_task_ids:
-                    external_downstream_task_ids.add(ds_task.task_id)
-
+        external_downstream_task_ids = get_task_group_downstream_task_ids(task_group, dag)
         log.info("External downstream task IDs found: %s", external_downstream_task_ids)
         
         if not external_downstream_task_ids:
@@ -671,12 +685,23 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
         tasks_str = self.get_tasks_to_run(ti_key, operator, self.log)
         self.log.debug("tasks to rerun: %s", tasks_str)
         
+        # Calculate external downstream tasks
+        external_downstream_tasks = set()
+        from airflow.utils.session import create_session
+        with create_session() as session:
+            dag = _get_dag(ti_key.dag_id, session=session)
+            external_downstream_tasks = get_task_group_downstream_task_ids(task_group, dag)
+            
+        external_downstream_tasks_str = ",".join(external_downstream_tasks)
+        self.log.debug("External downstream tasks: %s", external_downstream_tasks_str)
+        
         query_params = {
             "dag_id": ti_key.dag_id,
             "databricks_conn_id": metadata.conn_id,
             "databricks_run_id": metadata.run_id,
             "run_id": ti_key.run_id,
             "tasks_to_repair": tasks_str,
+            "external_downstream_tasks": external_downstream_tasks_str,
         }
         
         return url_for("RepairDatabricksTasksCustom.repair_handler", **query_params)
