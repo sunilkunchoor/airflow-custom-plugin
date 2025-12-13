@@ -111,7 +111,7 @@ def get_databricks_task_ids(
     :return: A list of Databricks task IDs for the given task group.
     """
     task_ids = []
-    log.debug("Getting databricks task ids for group %s", group_id)
+    log.info("Getting databricks task ids for group %s", group_id)
     for task_id, task in task_map.items():
         if task_id == f"{group_id}.launch":
             continue
@@ -123,7 +123,7 @@ def get_databricks_task_ids(
             # databricks_task_id = f"{task.dag_id}__{task.task_id.replace('.', '__')}"
             databricks_task_id = f"{task.task_id}"
             
-        log.debug("databricks task id for task %s is %s", task_id, databricks_task_id)
+        log.info("databricks task id for task %s is %s", task_id, databricks_task_id)
         task_ids.append(databricks_task_id)
     return task_ids
 
@@ -247,7 +247,7 @@ if not AIRFLOW_V_3_0_PLUS:
         dag_id: str, run_id: str, task_ids: list[str], log: Logger, session: Session = NEW_SESSION
     ) -> int:
         dag = _get_dag(dag_id, session=session)
-        log.debug("task_ids %s to clear", str(task_ids))
+        log.info("task_ids %s to clear", str(task_ids))
         dr: DagRun = _get_dagrun(dag, run_id, session=session)
         
         tis_to_clear = []
@@ -355,8 +355,8 @@ if not AIRFLOW_V_3_0_PLUS:
         hook = DatabricksHook(databricks_conn_id=databricks_conn_id)
 
         repair_history_id = hook.get_latest_repair_id(databricks_run_id)
-        logger.debug("Latest repair ID is %s", repair_history_id)
-        logger.debug(
+        logger.info("Latest repair ID is %s", repair_history_id)
+        logger.info(
             "Sending repair query for tasks %s on run %s",
             tasks_to_repair,
             databricks_run_id,
@@ -475,7 +475,7 @@ class WorkflowJobRunLink(BaseOperatorLink, LoggingMixin):
             raise AirflowException("Task group is required for generating Databricks Workflow Job Run Link.")
         self.log.info("Getting link for task %s", ti_key.task_id)
         if ".launch" not in ti_key.task_id:
-            self.log.debug("Finding the launch task for job run metadata %s", ti_key.task_id)
+            self.log.info("Finding the launch task for job run metadata %s", ti_key.task_id)
             launch_task_id = get_launch_task_id(task_group)
             ti_key = _get_launch_task_key(ti_key, task_id=launch_task_id)
         metadata = get_xcom_result(ti_key, "return_value")
@@ -525,7 +525,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
             ti = get_task_instance(operator, dttm)
             ti_key = ti.key
         task_group = operator.task_group
-        self.log.debug(
+        self.log.info(
             "Creating link to repair all tasks for databricks job run %s",
             task_group.group_id,
         )
@@ -533,7 +533,7 @@ class WorkflowJobRepairAllFailedLink(BaseOperatorLink, LoggingMixin):
         metadata = get_xcom_result(ti_key, "return_value")
 
         tasks_str = self.get_tasks_to_run(ti_key, operator, self.log)
-        self.log.debug("tasks to rerun: %s", tasks_str)
+        self.log.info("tasks to rerun: %s", tasks_str)
 
         query_params = {
             "dag_id": ti_key.dag_id,
@@ -675,7 +675,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
         
         # Finding the DatabricksWorkflowTaskGroup
         task_group = operator.task_group
-        self.log.debug(
+        self.log.info(
             "Creating link to repair all tasks for databricks job run %s",
             task_group.group_id,
         )
@@ -683,7 +683,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
         metadata = get_xcom_result(ti_key, "return_value")
 
         tasks_str = self.get_tasks_to_run(ti_key, operator, self.log)
-        self.log.debug("tasks to rerun: %s", tasks_str)
+        self.log.info("tasks to rerun: %s", tasks_str)
         
         # Calculate external downstream tasks
         external_downstream_tasks = set()
@@ -693,7 +693,7 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
             external_downstream_tasks = get_task_group_downstream_task_ids(task_group, dag)
             
         external_downstream_tasks_str = ",".join(external_downstream_tasks)
-        self.log.debug("External downstream tasks: %s", external_downstream_tasks_str)
+        self.log.info("External downstream tasks: %s", external_downstream_tasks_str)
         
         query_params = {
             "dag_id": ti_key.dag_id,
