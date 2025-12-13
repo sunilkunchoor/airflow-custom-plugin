@@ -187,8 +187,15 @@ if not AIRFLOW_V_3_0_PLUS:
                 flash(f"Databricks repair job is starting! Repair ID: {res}")
 
                 if task_group_id:
-                    _clear_downstream_task_instances(dag_id, run_id_unquoted, task_group, self.log)
-                    flash(f"Clearing all the remaining downstream tasks.")
+                    from airflow.utils.session import create_session
+                    with create_session() as session:
+                        dag = _get_dag(dag_id, session=session)
+                        task_group = _find_task_group(dag.task_group, task_group_id)
+                        if task_group:
+                            _clear_downstream_task_instances(dag_id, run_id_unquoted, task_group, self.log, session=session)
+                            flash(f"Clearing all the remaining downstream tasks.")
+                        else:
+                            self.log.warning(f"Task group {task_group_id} not found.")
 
             except Exception as e:
                 self.log.error("Failed to repair single task: %s", e, exc_info=True)
