@@ -286,12 +286,6 @@ if not AIRFLOW_V_3_0_PLUS:
         external_downstream_task_ids = get_task_group_downstream_task_ids(task_group, dag)
         log.info("External downstream task IDs found: %s", external_downstream_task_ids)
         
-        failed_and_skipped_tasks = WorkflowJobRepairAllFailedLink._get_failed_and_skipped_tasks(dr)
-        log.info("Failed and skipped tasks: %s", failed_and_skipped_tasks)
-
-        tasks_to_run = {ti: t for ti, t in external_downstream_task_ids if ti in failed_and_skipped_tasks}
-        log.info("Tasks to run: %s", tasks_to_run)
-        
         if not external_downstream_task_ids:
             return 0
 
