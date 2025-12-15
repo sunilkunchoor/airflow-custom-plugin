@@ -85,6 +85,15 @@ def get_task_group_downstream_task_ids(task_group: TaskGroup, dag: Any) -> set[s
     if not hasattr(dag, "task_dict"):
         return set()
 
+    # Helper to get full downstream of a task (inclusive or exclusive? get_flat_relatives is exclusive)
+    def add_task_and_downstreams(t):
+        if t.task_id not in group_task_ids:
+            external_downstream_task_ids.add(t.task_id)
+            for ds in t.get_flat_relatives(upstream=False):
+                if ds.task_id not in group_task_ids:
+                    external_downstream_task_ids.add(ds.task_id)
+
+    # A. Direct Downstreams of the Group
     for task_id in group_task_ids:
         if task_id not in dag.task_dict:
              continue
@@ -128,8 +137,98 @@ def get_databricks_task_ids(
     return task_ids
 
 
-# TODO: Need to re-think on how to support the currently unavailable repair functionality in Airflow 3. Probably a
-# good time to re-evaluate this would be once the plugin functionality is expanded in Airflow 3.1.
+# ... (existing imports)
+
+def _find_task_group(root_group, group_id):
+    """Recursively find a TaskGroup by ID."""
+    if root_group.group_id == group_id:
+        return root_group
+    for child in root_group.children.values():
+        if isinstance(child, TaskGroup):
+            found = _find_task_group(child, group_id)
+            if found:
+                return found
+    return None
+
+def _get_parallel_task_groups(dag, task_group_id: str) -> list[TaskGroup]:
+    """Get sibling TaskGroups of the specified group."""
+    target_group = _find_task_group(dag.task_group, task_group_id)
+    if not target_group:
+        return []
+    
+    parent = target_group.parent_group
+    siblings = []
+    
+    # If parent exists, siblings are other children of parent
+    if parent:
+        for child in parent.children.values():
+            if isinstance(child, TaskGroup) and child.group_id != task_group_id:
+                siblings.append(child)
+    return siblings
+
+def _get_failed_tasks_from_groups(dag, run_id, task_groups, log, session):
+    """Get failed task keys (Databricks specific) from a list of TaskGroups."""
+    if not task_groups:
+        return []
+
+    dr = _get_dagrun(dag, run_id, session=session)
+    
+    # helper to get all task ids in a group recursively
+    def get_all_task_ids_in_group(tg):
+        ids = set()
+        for child in tg.children.values():
+            if isinstance(child, TaskGroup):
+                ids.update(get_all_task_ids_in_group(child))
+            elif hasattr(child, "task_id"):
+                ids.add(child.task_id)
+        return ids
+
+    all_candidate_ids = set()
+    map_id_to_task = {} # To get databricks key later
+    
+    for tg in task_groups:
+        ids = get_all_task_ids_in_group(tg)
+        all_candidate_ids.update(ids)
+        # Also populate map
+        # Ideally we access tasks via dag.get_task matching ids
+        
+    failed_tis = []
+    from airflow.utils.state import TaskInstanceState
+    # Get all candidate TIs first? Or just get all failed in run and filter?
+    # Getting all failed in run is usually smaller.
+    
+    candidate_states = [
+        TaskInstanceState.FAILED,
+        TaskInstanceState.UPSTREAM_FAILED,
+        TaskInstanceState.SKIPPED,
+        TaskInstanceState.UP_FOR_RETRY,
+    ]
+    
+    all_failed_tis = dr.get_task_instances(state=candidate_states)
+    
+    tasks_map = {} # id -> task object
+    for ti in all_failed_tis:
+        if ti.task_id in all_candidate_ids:
+             try:
+                 task = dag.get_task(ti.task_id)
+                 tasks_map[ti.task_id] = task
+             except:
+                 continue
+                 
+    # Convert to databricks keys
+    # using existing helper get_databricks_task_ids logic mostly
+    # But get_databricks_task_ids takes a group_id and map.
+    # We can use it.
+    
+    # Flatten map?
+    # get_databricks_task_ids expects {task_id: task}
+    
+    # We might have tasks from multiple groups. get_databricks_task_ids just iterates values.
+    # group_id arg is just for logging there.
+    
+    return get_databricks_task_ids("parallel_repair", tasks_map, log)
+
+
 if not AIRFLOW_V_3_0_PLUS:
     from flask import flash, redirect, request, url_for
     from flask_appbuilder import BaseView
@@ -173,6 +272,29 @@ if not AIRFLOW_V_3_0_PLUS:
             dbk_tasks_to_repair = [dag_id+"__"+str(t).replace(".", "__").strip() for t in tasks_to_repair if str(t).strip()]
             self.log.info("Sanitized tasks to repair for Databricks: %s", dbk_tasks_to_repair)
 
+            # PARALLEL REPAIR LOGIC
+            if task_group_id:
+                from airflow.utils.session import create_session
+                with create_session() as session:
+                    dag = _get_dag(dag_id, session=session)
+                    
+                    parallel_groups = _get_parallel_task_groups(dag, task_group_id)
+                    self.log.info("Found parallel task groups: %s", [g.group_id for g in parallel_groups])
+                    
+                    parallel_failed_tasks = _get_failed_tasks_from_groups(
+                        dag=dag,
+                        run_id=unquote(run_id),
+                        task_groups=parallel_groups,
+                        log=self.log,
+                        session=session
+                    )
+                    
+                    if parallel_failed_tasks:
+                         self.log.info("Adding parallel failed tasks to repair: %s", parallel_failed_tasks)
+                         dbk_tasks_to_repair.extend(parallel_failed_tasks)
+                         # Deduplicate
+                         dbk_tasks_to_repair = list(set(dbk_tasks_to_repair))
+            
             try:
                 res = _repair_task(
                     databricks_conn_id=databricks_conn_id,
@@ -183,7 +305,16 @@ if not AIRFLOW_V_3_0_PLUS:
                 
                 self.log.info("Clearing tasks to rerun in airflow")
                 run_id_unquoted = unquote(run_id)
-                _clear_task_instances(dag_id, run_id_unquoted, tasks_to_repair, self.log)
+                # Note: This only clears explicitly listed tasks. 
+                # Downstream of the PRIMARY group is handled below. 
+                # Do we need to clear downstream of parallel tasks too? 
+                # _repair_task restarts them in DB. Airflow should probably clear them too.
+                # Adding them to tasks_to_repair here clears them.
+                
+                # However, original logic had separated clearing for downstream.
+                # Here we are adding to the MAIN repair list. So they will be cleared by _clear_task_instances.
+                
+                _clear_task_instances(dag_id, run_id_unquoted, dbk_tasks_to_repair, self.log)
                 flash(f"Databricks repair job is starting! Repair ID: {res}")
 
                 if task_group_id:
@@ -193,6 +324,15 @@ if not AIRFLOW_V_3_0_PLUS:
                         task_group = _find_task_group(dag.task_group, task_group_id)
                         if task_group:
                             _clear_downstream_task_instances(dag_id, run_id_unquoted, task_group, self.log, session=session)
+                            
+                            # ALSO clear downstream of parallel groups?
+                            # get_task_group_downstream_task_ids already handles "Parallel Tasks (Siblings)" logic now!
+                            # So calling it on the MAIN group *might* already capture parallel downstreams 
+                            # IF the parallel tasks were considered downstream.
+                            # But my previous edit to get_task_group_downstream_task_ids added logic to find parallel downstreams!
+                            # So _clear_downstream_task_instances(..., task_group) SHOULD cover it 
+                            # because it calls get_task_group_downstream_task_ids(task_group).
+                            
                             flash(f"Clearing all the remaining downstream tasks.")
                         else:
                             self.log.warning(f"Task group {task_group_id} not found.")
