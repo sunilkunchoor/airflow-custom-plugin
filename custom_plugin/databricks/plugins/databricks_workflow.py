@@ -1262,6 +1262,7 @@ class DatabricksWorkflowPlugin(AirflowPlugin):
             WorkflowJobRepairSingleTaskLink(),
             WorkflowJobRepairAllFailedFullLink(),
             WorkflowJobRunLink(),
+            WorkflowJobCancelLink(),
             HTTPDocsLink(),
         ]
         repair_databricks_view = RepairDatabricksTasksCustom()
