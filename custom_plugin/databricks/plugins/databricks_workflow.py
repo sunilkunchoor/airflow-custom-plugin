@@ -945,7 +945,7 @@ class WorkflowJobCancelLink(BaseOperatorLink, LoggingMixin):
             "databricks_conn_id": metadata.conn_id,
             "databricks_run_id": metadata.run_id,
             "run_id": ti_key.run_id,
-            "task_group_id": task_group.group_id,
+            #"task_group_id": task_group.group_id,
         }
         
         return url_for("RepairDatabricksTasksCustom.cancel_handler", **query_params)
