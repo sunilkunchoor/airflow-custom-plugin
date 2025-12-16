@@ -343,6 +343,79 @@ if not AIRFLOW_V_3_0_PLUS:
                 
             return redirect(return_url)
             
+        @expose("/cancel_databricks/<string:dag_id>/<string:run_id>", methods=("GET",))
+        @get_auth_decorator()
+        def cancel_handler(self, dag_id: str, run_id: str):
+            return_url = self._get_return_url(dag_id, run_id)
+            databricks_conn_id = request.values.get("databricks_conn_id")
+            databricks_run_id = request.values.get("databricks_run_id")
+            task_group_id = request.values.get("task_group_id")
+
+            if not databricks_conn_id or not databricks_run_id:
+                flash("Missing Databricks connection or run ID.")
+                return redirect(return_url)
+            
+            runs_to_cancel = [(databricks_conn_id, databricks_run_id)]
+            
+            # PARALLEL CANCELLATION
+            if task_group_id:
+                from airflow.utils.session import create_session
+                with create_session() as session:
+                    dag = _get_dag(dag_id, session=session)
+                    parallel_groups = _get_parallel_task_groups(dag, task_group_id)
+                    
+                    self.log.info("Checking parallel groups for runs to cancel: %s", [g.group_id for g in parallel_groups])
+                    
+                    for pg in parallel_groups:
+                        try:
+                            # 1. Get launch task ID
+                            launch_task_id = get_launch_task_id(pg)
+                            
+                            # 2. Get XCom value for this specific task instance in the current DAG run
+                            # We need to manually construct the TI Key or query XCom directly
+                            # Since we have run_id (unquoted needed?)
+                            run_id_unquoted = unquote(run_id)
+                            
+                            # Construct XCom query
+                            from airflow.models.xcom import XCom
+                            result = session.query(XCom).filter(
+                                XCom.dag_id == dag_id,
+                                XCom.run_id == run_id_unquoted,
+                                XCom.task_id == launch_task_id,
+                                XCom.key == "return_value"
+                            ).first()
+                            
+                            if result:
+                                from airflow.providers.databricks.operators.databricks_workflow import WorkflowRunMetadata
+                                # XCom.value is automatically deserialized in newer airflow, but accessing .value directly might differ
+                                val = result.value
+                                meta = WorkflowRunMetadata(**val)
+                                runs_to_cancel.append((meta.conn_id, meta.run_id))
+                                self.log.info("Found sibling run to cancel: %s", meta.run_id)
+                                
+                        except Exception as e:
+                            self.log.warning("Could not find Databricks run for parallel group %s: %s", pg.group_id, e)
+
+            # Deduplicate
+            runs_to_cancel = list(set(runs_to_cancel))
+            
+            success_count = 0
+            for conn_id, run_id_to_cancel in runs_to_cancel:
+                try:
+                    self.log.info("Cancelling Databricks run %s on %s", run_id_to_cancel, conn_id)
+                    hook = DatabricksHook(databricks_conn_id=conn_id)
+                    hook.cancel_run(run_id_to_cancel)
+                    success_count += 1
+                except Exception as e:
+                    self.log.error("Failed to cancel run %s: %s", run_id_to_cancel, e)
+            
+            if success_count > 0:
+                flash(f"Cancelled {success_count} Databricks workflow run(s).")
+            else:
+                flash("Failed to cancel Databricks workflow runs.")
+
+            return redirect(return_url)
+
         @staticmethod
         def _get_return_url(dag_id: str, run_id: str) -> str:
             return url_for("Airflow.grid", dag_id=dag_id, dag_run_id=run_id)
@@ -845,6 +918,37 @@ class WorkflowJobRepairAllFailedFullLink(BaseOperatorLink, LoggingMixin):
         tasks_to_run = {ti: t for ti, t in task_group_sub_tasks if ti in failed_and_skipped_tasks}
 
         return ",".join(get_databricks_task_ids(task_group.group_id, tasks_to_run, log))  # type: ignore[arg-type]
+
+
+class WorkflowJobCancelLink(BaseOperatorLink, LoggingMixin):
+    """Constructs a link to cancel the Databricks workflow."""
+    
+    name = "Cancel Workflow"
+    operators = [_CreateDatabricksWorkflowOperator]
+
+    def get_link(
+        self,
+        operator,
+        dttm=None,
+        *,
+        ti_key: TaskInstanceKey | None = None,
+    ) -> str:
+        if not ti_key:
+            ti = get_task_instance(operator, dttm)
+            ti_key = ti.key
+        
+        task_group = operator.task_group
+        metadata = get_xcom_result(ti_key, "return_value")
+        
+        query_params = {
+            "dag_id": ti_key.dag_id,
+            "databricks_conn_id": metadata.conn_id,
+            "databricks_run_id": metadata.run_id,
+            "run_id": ti_key.run_id,
+            "task_group_id": task_group.group_id,
+        }
+        
+        return url_for("RepairDatabricksTasksCustom.cancel_handler", **query_params)
 
 
 databricks_plugin_bp = Blueprint(
