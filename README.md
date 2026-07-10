@@ -1,5 +1,8 @@
 # Airflow Custom SDK
 
+> [!NOTE]
+> **Development Status:** This SDK is continuously in active development. Features, APIs, and overall structure are subject to change, and ongoing updates can be observed in the repository.
+
 A comprehensive custom SDK and plugin package for Apache Airflow, designed to support both Airflow v2 and Airflow v3. This repository includes custom operators, hooks, and plugins to extend Airflow's functionality, with a primary focus on Databricks, Azure, and Bash integrations.
 
 ## Repository Structure
