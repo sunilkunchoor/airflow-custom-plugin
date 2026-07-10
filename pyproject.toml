@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "custom_plugins"
+name = "custom_sdk"
 version = "0.0.3"
 description = "Custom plugings for Apache Airflow 3."
 readme = "README.md"
@@ -20,5 +20,5 @@ dependencies = [
 ]
 
 [project.entry-points."airflow.plugins"]
-databricks_custom = "custom_plugins.databricks.workflow_plugins:DatabricksCustomPlugin"
-bash_custom = "custom_plugins.bash.google_search_return:OperatorExtraLinkPlugin"
+databricks_custom = "custom_sdk.databricks.plugins:DatabricksCustomPlugin"
+bash_custom = "custom_sdk.bash.plugins.google_search_return:OperatorExtraLinkPlugin"
